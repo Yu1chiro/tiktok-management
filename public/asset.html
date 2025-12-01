@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kelola Asset - Wabi Sabi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Penting: Supabase Client JS untuk Upload langsung dari Browser -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'ws-bg': 'var(--ws-bg)',
+                        'ws-card': 'var(--ws-card)',
+                        'ws-text': 'var(--ws-text)',
+                        'ws-muted': 'var(--ws-muted)',
+                        'ws-accent': '#78716c',
+                        'ws-accent-hover': '#57534e',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --ws-bg: #f5f5f4; --ws-card: #e7e5e4; --ws-text: #292524; --ws-muted: #a8a29e;
+        }
+        .dark {
+            --ws-bg: #1c1917; --ws-card: #292524; --ws-text: #e7e5e4; --ws-muted: #57534e;
+        }
+        body { background-color: var(--ws-bg); color: var(--ws-text); transition: all 0.3s; }
+        .card { background-color: var(--ws-card); }
+        
+        /* Custom Scrollbar for Grid */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--ws-muted); border-radius: 4px; }
+    </style>
+</head>
+<body class="p-4 md:p-8 font-sans min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <div class="flex items-center justify-between mb-8">
+        <a href="/" class="flex items-center gap-2 text-ws-muted hover:text-ws-text transition">
+            &larr; Kembali
+        </a>
+        <div class="flex items-center gap-3">
+            <h2 id="pageTitle" class="text-xl font-bold truncate max-w-[150px] md:max-w-xs">Loading...</h2>
+            <button id="themeToggle" class="p-2 rounded-full card hover:brightness-90 transition text-sm">🌗</button>
+        </div>
+    </div>
+
+    <!-- Upload Area -->
+    <div class="mb-8">
+        <label for="fileInput" class="block w-full border-2 border-dashed border-ws-muted/50 rounded-2xl p-8 text-center cursor-pointer hover:border-ws-accent hover:bg-ws-card/50 transition group">
+            <div class="text-4xl mb-2 group-hover:scale-110 transition transform">☁️</div>
+            <p class="font-medium">Klik atau Drag gambar ke sini</p>
+            <p class="text-sm text-ws-muted">Bulk upload didukung. Nama file akan jadi judul.</p>
+        </label>
+        <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+        
+        <!-- Progress Bar -->
+        <div id="progressContainer" class="hidden mt-4 h-2 bg-ws-card rounded-full overflow-hidden">
+            <div id="progressBar" class="h-full bg-ws-accent transition-all duration-300 w-0"></div>
+        </div>
+        <p id="uploadStatus" class="text-center text-xs text-ws-muted mt-2 hidden"></p>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="flex justify-between items-center mb-6">
+        <span id="countDisplay" class="text-sm text-ws-muted">0 Assets</span>
+        <button onclick="downloadAll()" class="flex items-center gap-2 px-4 py-2 bg-ws-card hover:brightness-90 rounded-lg text-sm font-medium transition">
+            <span>⬇️</span> Download Semua (Auto)
+        </button>
+    </div>
+
+    <!-- Asset Grid -->
+    <div id="assetGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
+        <!-- Images injected here -->
+    </div>
+
+    <script>
+        // --- KONFIGURASI SUPABASE CLIENT ---
+        // Saya kembalikan kuncinya seperti yang Anda upload sebelumnya
+        const SUPABASE_URL = 'https://bphvkgvpayytyidcasah.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwaHZrZ3ZwYXl5dHlpZGNhc2FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MTgzMTgsImV4cCI6MjA4MDA5NDMxOH0.WhqSmrZ0vdeTF8yRKVseNXhlvBpuyKTr-J5Y6aDzwyo';
+        
+        let supabase;
+
+        // PERBAIKAN: Validasi sekarang hanya mengecek format URL, tidak mengecek string spesifik
+        if (!SUPABASE_URL || !SUPABASE_URL.startsWith('http') || SUPABASE_URL.includes('SUPABASE_URL_ANDA')) {
+            console.error('Supabase URL belum diset! Silakan edit file asset.html');
+            document.addEventListener('DOMContentLoaded', () => {
+                 Swal.fire({
+                    icon: 'error',
+                    title: 'Konfigurasi Belum Diset',
+                    html: 'Silakan buka file code <b>public/asset.html</b> dan ganti <code>SUPABASE_URL</code> serta <code>SUPABASE_ANON_KEY</code> dengan kredensial project Supabase Anda.',
+                    footer: '<a href="https://supabase.com/dashboard" target="_blank" class="text-blue-500 underline">Buka Supabase Dashboard</a>'
+                });
+            });
+        } else {
+            // Inisialisasi hanya jika URL valid
+            try {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } catch (e) {
+                console.error("Supabase Init Error:", e);
+                alert("Gagal menginisialisasi Supabase. Cek console untuk detail.");
+            }
+        }
+
+        // --- SETUP ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const deckId = urlParams.get('id');
+        
+        if (!deckId) window.location.href = '/';
+
+        // Theme Logic
+        const html = document.documentElement;
+        if (localStorage.getItem('theme') === 'dark') html.classList.add('dark');
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            html.classList.toggle('dark');
+            localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+        });
+
+        // Toast
+        const Toast = Swal.mixin({
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true
+        });
+
+        // --- BUSINESS LOGIC ---
+
+        // 1. Fetch Assets
+        async function loadAssets() {
+            try {
+                // Fetch assets
+                const res = await fetch(`/api/decks/${deckId}/assets`);
+                const assets = await res.json();
+                
+                document.getElementById('pageTitle').innerText = `Deck ID: ${deckId.substring(0,6)}...`; 
+                document.getElementById('countDisplay').innerText = `${assets.length} Assets`;
+
+                renderGrid(assets);
+            } catch (err) {
+                console.error(err);
+                Toast.fire({ icon: 'error', title: 'Gagal memuat asset' });
+            }
+        }
+
+        function renderGrid(assets) {
+            const grid = document.getElementById('assetGrid');
+            grid.innerHTML = '';
+
+            if (assets.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center text-ws-muted italic">Belum ada gambar. Upload sekarang!</div>';
+                return;
+            }
+
+            assets.forEach(asset => {
+                const html = `
+                <div class="relative group aspect-square rounded-xl overflow-hidden bg-ws-card">
+                    <img src="${asset.public_url}" alt="${asset.title}" class="w-full h-full object-cover transition duration-500 group-hover:scale-105">
+                    
+                    <!-- Overlay Info -->
+                    <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex flex-col justify-end p-3">
+                        <p class="text-white text-xs font-bold truncate mb-1">${asset.title}</p>
+                        <div class="flex gap-2 mt-1">
+                            <a href="${asset.public_url}" download target="_blank" class="flex-1 text-center bg-white/20 hover:bg-white/40 text-white text-[10px] py-1 rounded backdrop-blur-sm">
+                                Download
+                            </a>
+                            <button onclick="deleteAsset('${asset.id}')" class="bg-red-500/80 hover:bg-red-500 text-white p-1 rounded backdrop-blur-sm">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                `;
+                grid.innerHTML += html;
+            });
+        }
+
+        // 2. Upload Logic (Direct to Supabase -> Sync to DB)
+        const fileInput = document.getElementById('fileInput');
+        fileInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+            
+            // Cek Client Supabase
+            if (!supabase) {
+                return Swal.fire('Error Konfigurasi', 'Supabase Client belum siap. Cek kredensial di kode.', 'error');
+            }
+
+            // UI Feedback
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const statusText = document.getElementById('uploadStatus');
+            
+            progressContainer.classList.remove('hidden');
+            statusText.classList.remove('hidden');
+            progressBar.style.width = '0%';
+
+            const uploadedMetadata = [];
+            let successCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const cleanName = file.name.replace(/[^\w\s.-]/g, '').replace(/\s+/g, '_');
+                const timestamp = Date.now();
+                const filePath = `decks/${deckId}/${timestamp}_${cleanName}`;
+                
+                // Update status
+                statusText.innerText = `Mengupload ${i+1} dari ${files.length}: ${file.name}...`;
+                
+                // A. Upload ke Supabase Storage
+                const { error: uploadError } = await supabase.storage
+                    .from('deck-assets')
+                    .upload(filePath, file);
+
+                if (!uploadError) {
+                    // B. Dapatkan URL
+                    const { data } = supabase.storage
+                        .from('deck-assets')
+                        .getPublicUrl(filePath);
+
+                    uploadedMetadata.push({
+                        title: file.name.split('.').slice(0, -1).join('.'),
+                        storage_path: filePath,
+                        public_url: data.publicUrl
+                    });
+                    successCount++;
+                } else {
+                    console.error("Upload Error:", uploadError);
+                }
+                
+                // Update Progress Bar
+                const percent = Math.round(((i + 1) / files.length) * 100);
+                progressBar.style.width = `${percent}%`;
+            }
+
+            // C. Kirim Metadata ke Server Express
+            if (uploadedMetadata.length > 0) {
+                statusText.innerText = "Menyimpan data ke database...";
+                try {
+                    const res = await fetch('/api/assets', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ deckId, assets: uploadedMetadata })
+                    });
+                    
+                    if (!res.ok) throw new Error("Gagal simpan ke DB");
+                    
+                    Toast.fire({ icon: 'success', title: `Berhasil upload ${successCount} gambar!` });
+                } catch (err) {
+                    console.error(err);
+                    Toast.fire({ icon: 'warning', title: 'Gambar terupload tapi gagal dicatat di DB' });
+                }
+            } else {
+                Toast.fire({ icon: 'error', title: 'Semua upload gagal' });
+            }
+
+            // Reset UI
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+                statusText.classList.add('hidden');
+                progressBar.style.width = '0';
+                loadAssets();
+            }, 1000);
+            
+            fileInput.value = ''; 
+        });
+
+        // 3. Delete Asset
+        async function deleteAsset(id) {
+            if(!confirm('Hapus gambar ini?')) return;
+            
+            try {
+                const res = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error("Gagal hapus");
+                
+                Toast.fire({ icon: 'success', title: 'Gambar dihapus' });
+                loadAssets();
+            } catch (err) {
+                Toast.fire({ icon: 'error', title: 'Gagal menghapus' });
+            }
+        }
+
+        // 4. Bulk Download (Auto Browser Download)
+        async function downloadAll() {
+            // Ambil semua data asset terbaru
+            const res = await fetch(`/api/decks/${deckId}/assets`);
+            const assets = await res.json();
+            
+            if (assets.length === 0) return Toast.fire({ icon: 'info', title: 'Tidak ada file untuk didownload' });
+
+            Toast.fire({ icon: 'info', title: `Mulai mendownload ${assets.length} file...` });
+
+            // Loop dan trigger download dengan jeda
+            for (let i = 0; i < assets.length; i++) {
+                setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = assets[i].public_url;
+                    // Note: 'download' attribute hanya bekerja untuk same-origin atau jika server header mengizinkan
+                    // Namun kita membukanya di _blank sebagai fallback agar user bisa save as
+                    link.target = '_blank';
+                    link.download = assets[i].title; 
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }, i * 800); // Jeda 800ms agar browser tidak memblokir popup
+            }
+        }
+
+        // Init
+        loadAssets();
+    </script>
+</body>
+</html>

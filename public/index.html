@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asset Manager - Wabi Sabi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'ws-bg': 'var(--ws-bg)',
+                        'ws-card': 'var(--ws-card)',
+                        'ws-text': 'var(--ws-text)',
+                        'ws-muted': 'var(--ws-muted)',
+                        'ws-accent': '#78716c',
+                        'ws-accent-hover': '#57534e',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --ws-bg: #f5f5f4;
+            --ws-card: #e7e5e4;
+            --ws-text: #292524;
+            --ws-muted: #a8a29e;
+        }
+        .dark {
+            --ws-bg: #1c1917;
+            --ws-card: #292524;
+            --ws-text: #e7e5e4;
+            --ws-muted: #57534e;
+        }
+        body { background-color: var(--ws-bg); color: var(--ws-text); transition: all 0.3s; }
+        .card { background-color: var(--ws-card); }
+    </style>
+</head>
+<body class="p-6 md:p-12 font-sans min-h-screen">
+
+    <!-- Header & Toggle -->
+    <div class="flex justify-between items-center mb-10">
+        <h1 class="text-3xl font-bold tracking-tight">Wabi<span class="text-ws-muted">Sabi</span> Decks</h1>
+        <button id="themeToggle" class="p-2 rounded-full card hover:brightness-90 transition">
+            🌗
+        </button>
+    </div>
+
+    <!-- Create Deck Form -->
+    <div class="mb-12 max-w-lg mx-auto">
+        <div class="flex gap-2">
+            <input type="text" id="deckTitle" placeholder="Nama Deck Baru (mis: Liburan 2024)" 
+                class="w-full p-4 rounded-xl card border border-transparent focus:border-ws-muted outline-none transition text-ws-text placeholder-ws-muted">
+            <button onclick="createDeck()" class="px-6 py-4 bg-ws-accent text-white rounded-xl hover:bg-ws-accent-hover transition font-medium whitespace-nowrap">
+                + Buat Deck
+            </button>
+        </div>
+    </div>
+
+    <!-- Deck Grid -->
+    <div id="deckList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="col-span-full text-center text-ws-muted py-10">Loading decks...</div>
+    </div>
+
+    <script>
+        // --- THEME TOGGLE LOGIC ---
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+        
+        if (localStorage.getItem('theme') === 'dark') html.classList.add('dark');
+
+        themeToggle.addEventListener('click', () => {
+            html.classList.toggle('dark');
+            localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+        });
+
+        // --- NOTIFICATION ---
+        const Toast = Swal.mixin({
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000,
+            timerProgressBar: true,
+            didOpen: (toast) => {
+                toast.addEventListener('mouseenter', Swal.stopTimer)
+                toast.addEventListener('mouseleave', Swal.resumeTimer)
+            }
+        });
+
+        // --- API & UI LOGIC ---
+        const API_URL = '/api/decks';
+
+        async function fetchDecks() {
+            try {
+                const res = await fetch(API_URL);
+                const decks = await res.json();
+                renderDecks(decks);
+            } catch (err) {
+                console.error(err);
+                Toast.fire({ icon: 'error', title: 'Gagal mengambil data deck' });
+            }
+        }
+
+        function renderDecks(decks) {
+            const container = document.getElementById('deckList');
+            container.innerHTML = '';
+            
+            if(decks.length === 0) {
+                container.innerHTML = `<div class="col-span-full text-center text-ws-muted italic">Belum ada deck. Buat satu!</div>`;
+                return;
+            }
+
+            decks.forEach(deck => {
+                const date = new Date(deck.created_at).toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'});
+                
+                const html = `
+                <div class="card p-6 rounded-2xl shadow-sm hover:shadow-md transition group relative border border-transparent hover:border-ws-muted/20">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-ws-bg flex items-center justify-center text-xl">📁</div>
+                        <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                            <button onclick="deleteDeck('${deck.id}')" class="text-red-400 hover:text-red-600">Hapus</button>
+                        </div>
+                    </div>
+                    <h3 class="text-xl font-bold mb-1 truncate">${deck.title}</h3>
+                    <p class="text-xs text-ws-muted mb-6">Dibuat: ${date}</p>
+                    
+                    <a href="/asset?id=${deck.id}" class="block w-full text-center py-3 rounded-lg bg-ws-bg hover:brightness-95 text-ws-text font-medium transition">
+                        Kelola Deck &rarr;
+                    </a>
+                </div>
+                `;
+                container.innerHTML += html;
+            });
+        }
+
+        async function createDeck() {
+            const input = document.getElementById('deckTitle');
+            const title = input.value.trim();
+            if(!title) return Toast.fire({ icon: 'warning', title: 'Judul tidak boleh kosong' });
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title })
+                });
+                
+                if(res.ok) {
+                    input.value = '';
+                    Toast.fire({ icon: 'success', title: 'Deck berhasil dibuat' });
+                    fetchDecks();
+                }
+            } catch (err) {
+                Toast.fire({ icon: 'error', title: 'Gagal membuat deck' });
+            }
+        }
+
+        async function deleteDeck(id) {
+            const result = await Swal.fire({
+                title: 'Hapus Deck?',
+                text: "Semua aset di dalamnya akan hilang!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#78716c',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Ya, hapus!'
+            });
+
+            if (result.isConfirmed) {
+                await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+                Toast.fire({ icon: 'success', title: 'Deck dihapus' });
+                fetchDecks();
+            }
+        }
+
+        // Init
+        fetchDecks();
+    </script>
+</body>
+</html>
