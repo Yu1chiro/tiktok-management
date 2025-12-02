@@ -289,31 +289,83 @@
         }
 
         // 4. Bulk Download (Auto Browser Download)
-        async function downloadAll() {
-            // Ambil semua data asset terbaru
-            const res = await fetch(`/api/decks/${deckId}/assets`);
-            const assets = await res.json();
+        // 4. Sequential Bulk Download (Satu per satu berurutan)
+async function downloadAll() {
+    // A. Ambil daftar asset terbaru
+    const res = await fetch(`/api/decks/${deckId}/assets`);
+    const assets = await res.json();
+    
+    if (assets.length === 0) return Toast.fire({ icon: 'info', title: 'Tidak ada file untuk didownload' });
+
+    // B. Konfirmasi User (Penting untuk Browser HP agar tidak memblokir)
+    const confirmResult = await Swal.fire({
+        title: 'Download Berurutan',
+        text: `Akan mendownload ${assets.length} gambar satu per satu. Browser mungkin meminta izin untuk "Multiple Downloads".`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#78716c',
+        confirmButtonText: 'Mulai Download'
+    });
+
+    if (!confirmResult.isConfirmed) return;
+
+    // Helper untuk jeda waktu (agar tidak nge-hang browser HP)
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // C. Loop Download
+    for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        
+        // Update status di Toast agar user tahu progresnya
+        Toast.fire({ 
+            icon: 'info', 
+            title: `Mendownload ${i + 1} dari ${assets.length}...`,
+            timer: 2000 // Reset timer agar toast tidak hilang
+        });
+
+        try {
+            // 1. Fetch gambar sebagai "BLOB" (Binary Large Object)
+            // Ini kuncinya: kita ambil datanya dulu lewat background process
+            const response = await fetch(asset.public_url);
             
-            if (assets.length === 0) return Toast.fire({ icon: 'info', title: 'Tidak ada file untuk didownload' });
+            if (!response.ok) throw new Error('Network error');
+            
+            const blob = await response.blob();
+            
+            // 2. Buat URL object sementara di memori browser
+            const blobUrl = window.URL.createObjectURL(blob);
 
-            Toast.fire({ icon: 'info', title: `Mulai mendownload ${assets.length} file...` });
+            // 3. Buat element anchor <a> virtual untuk men-trigger download
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            
+            // Tentukan nama file (ambil dari judul atau nama asli)
+            // Kita tambahkan ekstensi .jpg/.png jika belum ada agar dikenali galeri
+            let filename = asset.title || `image-${i}`;
+            if (!filename.includes('.')) filename += '.jpg'; // Default extension
+            
+            link.download = filename;
+            
+            document.body.appendChild(link);
+            link.click(); // Trigger klik otomatis
+            document.body.removeChild(link);
 
-            // Loop dan trigger download dengan jeda
-            for (let i = 0; i < assets.length; i++) {
-                setTimeout(() => {
-                    const link = document.createElement('a');
-                    link.href = assets[i].public_url;
-                    // Note: 'download' attribute hanya bekerja untuk same-origin atau jika server header mengizinkan
-                    // Namun kita membukanya di _blank sebagai fallback agar user bisa save as
-                    link.target = '_blank';
-                    link.download = assets[i].title; 
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                }, i * 800); // Jeda 800ms agar browser tidak memblokir popup
-            }
+            // 4. Bersihkan memori
+            window.URL.revokeObjectURL(blobUrl);
+
+            // 5. BERI JEDA (PENTING!)
+            // Browser HP butuh waktu untuk memproses file sebelum menerima file berikutnya.
+            // Jika terlalu cepat, Chrome/Safari akan memblokir sisanya.
+            await wait(1500); // Jeda 1.5 detik per gambar
+
+        } catch (err) {
+            console.error(`Gagal download asset: ${asset.title}`, err);
+            // Lanjut ke file berikutnya meski error
         }
+    }
 
+    Toast.fire({ icon: 'success', title: 'Semua download selesai!' });
+}
         // Init
         loadAssets();
     </script>
